@@ -50,15 +50,36 @@ app.post('/api/login', async (req, res) => {
 
   // Check for admin credentials
   if (username === adminUser.username && password === adminUser.password) {
-    return res.status(200).json({ message: 'Admin login successful!' });
+    return res.status(200).json({ message: 'Admin login successful!', user: { username, fullName: 'Admin', email: 'admin@example.com' } });
   }
 
   // Check for user in the database
   const user = await User.findOne({ username, password });
   if (user) {
-    return res.status(200).json({ message: 'Login successful!' });
+    return res.status(200).json({ message: 'Login successful!', user: user });
   } else {
     return res.status(401).json({ message: 'Invalid credentials' });
+  }
+});
+
+// Update User Profile Endpoint
+app.put('/api/users/:id', async (req, res) => {
+  const { id } = req.params;
+  const { fullName, username } = req.body;
+
+  try {
+    const updatedUser = await User.findByIdAndUpdate(id, {
+      fullName,
+      username
+    }, { new: true });  // Return the updated user
+
+    if (!updatedUser) {
+      return res.status(404).json({ message: 'User not found' });
+    }
+
+    res.status(200).json(updatedUser);
+  } catch (error) {
+    res.status(500).json({ message: 'Error updating user profile', error });
   }
 });
 
