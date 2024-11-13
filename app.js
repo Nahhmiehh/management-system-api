@@ -1,6 +1,7 @@
 const express = require('express');
 const mongoose = require('mongoose');
 const cors = require('cors');
+const bcrypt = require('bcrypt');
 
 const app = express();
 const PORT = process.env.PORT || 4000;
@@ -15,71 +16,62 @@ mongoose.connect(databaseURL, { useNewUrlParser: true, useUnifiedTopology: true 
   .then(() => console.log('MongoDB Connected....'))
   .catch(err => console.log('MongoDB Connection error....'));
 
+
 // User Model
-const UserSchema = new mongoose.Schema({
+const userSchema = new mongoose.Schema({
   fullName: String,
-  username: String,
-  password: String,
+  username: { type: String, unique: true },
+  password: String
 });
-const User = mongoose.model('User', UserSchema);
 
-// In-memory admin user
-const adminUser = {
-  username: 'admin',
-  password: 'admin',
-};
+const User = mongoose.model('User', userSchema);
 
-// Registration Endpoint
 app.post('/api/registration', async (req, res) => {
   const { fullName, username, password } = req.body;
-
-  // Check if the user already exists
-  const existingUser = await User.findOne({ username });
-  if (existingUser) {
-    return res.status(400).json({ message: 'User already exists' });
-  }
-
-  const newUser = new User({ fullName, username, password });
+  const hashedPassword = await bcrypt.hash(password, 10);
+  const newUser = new User({ fullName, username, password: hashedPassword });
   await newUser.save();
   res.status(201).json(newUser);
 });
 
-// Login Endpoint
 app.post('/api/login', async (req, res) => {
   const { username, password } = req.body;
-
-  // Check for admin credentials
-  if (username === adminUser.username && password === adminUser.password) {
-    return res.status(200).json({ message: 'Admin login successful!', user: { username, fullName: 'Admin', email: 'admin@example.com' } });
-  }
-
-  // Check for user in the database
-  const user = await User.findOne({ username, password });
-  if (user) {
-    return res.status(200).json({ message: 'Login successful!', user: user });
+  const user = await User.findOne({ username });
+  if (user && await bcrypt.compare(password, user.password)) {
+    res.status(200).json({ user });
   } else {
-    return res.status(401).json({ message: 'Invalid credentials' });
+    res.status(401).json({ message: 'Invalid credentials' });
   }
 });
 
-// Update User Profile Endpoint
-app.put('/api/users/:id', async (req, res) => {
+app.get('/api/registration/:id', async (req, res) => {
+  const user = await User.findById(req.params.id);
+  if (user) {
+    res.json(user);
+  } else {
+    res.status(404).json({ message: 'User not found' });
+  }
+});
+
+app.put('/api/registration/:id', async (req, res) => {
   const { id } = req.params;
   const { fullName, username } = req.body;
 
   try {
-    const updatedUser = await User.findByIdAndUpdate(id, {
-      fullName,
-      username
-    }, { new: true });  // Return the updated user
+      const updatedUser = await User.findByIdAndUpdate(
+          id,
+          { fullName, username },
+          { new: true } // Return the updated document
+      );
 
-    if (!updatedUser) {
-      return res.status(404).json({ message: 'User not found' });
-    }
+      if (!updatedUser) {
+          return res.status(404).json({ message: 'User not found' });
+      }
 
-    res.status(200).json(updatedUser);
+      res.status(200).json(updatedUser);
   } catch (error) {
-    res.status(500).json({ message: 'Error updating user profile', error });
+      console.error('Error updating user information:', error);
+      res.status(500).json({ message: 'Server error updating user information' });
   }
 });
 
@@ -90,24 +82,15 @@ const ProductSchema = new mongoose.Schema({
   description: { type: String },
   price: { type: Number, required: true },
   qty: { type: Number, required: true },
-  date_added: { type: Date, default: Date.now }
+  date_added: { type: Date, default: Date.now },
 });
 const Product = mongoose.model('Product', ProductSchema);
 
-// Create a new product (POST)
+// CRUD Endpoints for Products
 app.post('/api/products', async (req, res) => {
   try {
     const { product_code, name, description, price, qty, date_added } = req.body;
-
-    const newProduct = new Product({
-      product_code,
-      name,
-      description,
-      price,
-      qty,
-      date_added
-    });
-
+    const newProduct = new Product({ product_code, name, description, price, qty, date_added });
     await newProduct.save();
     res.status(201).json(newProduct);
   } catch (error) {
@@ -115,17 +98,15 @@ app.post('/api/products', async (req, res) => {
   }
 });
 
-// Get all products (GET)
 app.get('/api/products', async (req, res) => {
   try {
-      const products = await Product.find(); // Fetch all products
-      res.status(200).json(products);
+    const products = await Product.find();
+    res.status(200).json(products);
   } catch (error) {
-      res.status(500).json({ message: 'Error fetching products', error });
+    res.status(500).json({ message: 'Error fetching products', error });
   }
 });
 
-// Get a single product by ID (GET)
 app.get('/api/products/:id', async (req, res) => {
   try {
     const product = await Product.findById(req.params.id);
@@ -138,37 +119,29 @@ app.get('/api/products/:id', async (req, res) => {
   }
 });
 
-// Update a product by ID (PUT)
 app.put('/api/products/:id', async (req, res) => {
   const { id } = req.params;
   const { product_code, name, description, price, qty, date_added } = req.body;
-  
   try {
-      const updatedProduct = await Product.findByIdAndUpdate(id, {
-          product_code, name, description, price, qty, date_added
-      }, { new: true });  // Return the updated product
-      if (!updatedProduct) {
-          return res.status(404).json({ message: 'Product not found' });
-      }
-      res.status(200).json(updatedProduct);
+    const updatedProduct = await Product.findByIdAndUpdate(id, { product_code, name, description, price, qty, date_added }, { new: true });
+    if (!updatedProduct) {
+      return res.status(404).json({ message: 'Product not found' });
+    }
+    res.status(200).json(updatedProduct);
   } catch (error) {
-      res.status(500).json({ message: 'Error updating product', error });
+    res.status(500).json({ message: 'Error updating product', error });
   }
 });
 
-
-// Delete a product by ID (DELETE)
 app.delete('/api/products/:id', async (req, res) => {
-  const { id } = req.params;
-
   try {
-      const deletedProduct = await Product.findByIdAndDelete(id);
-      if (!deletedProduct) {
-          return res.status(404).json({ message: 'Product not found' });
-      }
-      res.status(200).json({ message: 'Product deleted successfully' });
+    const deletedProduct = await Product.findByIdAndDelete(req.params.id);
+    if (!deletedProduct) {
+      return res.status(404).json({ message: 'Product not found' });
+    }
+    res.status(200).json({ message: 'Product deleted successfully' });
   } catch (error) {
-      res.status(500).json({ message: 'Error deleting product', error });
+    res.status(500).json({ message: 'Error deleting product', error });
   }
 });
 
